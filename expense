@@ -11,11 +11,8 @@ class ExpenseData
 
   def list_expenses
     result = @connection.exec("SELECT * FROM expenses ORDER BY created_on ASC;")
-    display_expense_count(result)
-    return unless result.ntuples > 0
-
-    display_expenses(result)
-    display_expense_total(result)
+    display_count(result)
+    display_expenses(result) if result.ntuples > 0
   end
 
   def add_expense(amount, memo)
@@ -29,11 +26,8 @@ class ExpenseData
     sql = "SELECT * FROM expenses WHERE memo ILIKE $1 " \
           "ORDER BY created_on ASC;"
     result = @connection.exec_params(sql, ["%#{query}%"])
-    display_expense_count(result)
-    return unless result.ntuples > 0
-
-    display_expenses(result)
-    display_expense_total(result)
+    display_count(result)
+    display_expenses(result) if result.ntuples > 0
   end
 
   def delete_expense(id)
@@ -56,7 +50,7 @@ class ExpenseData
 
   private
 
-  def display_expense_count(expenses)
+  def display_count(expenses)
     expense_count = expenses.ntuples
     puts case expense_count
          when 0
@@ -68,16 +62,6 @@ class ExpenseData
          end
   end
 
-  def display_expense_total(expenses)
-    total = 0
-    expenses.each do |row|
-      total += row["amount"].to_f
-    end
-
-    puts "-" * 50
-    puts "Total" + "#{total.to_s.rjust(26)}"
-  end
-
   def display_expenses(expenses)
     expenses.each do |tuple|
       columns = [tuple["id"].rjust(3),
@@ -87,6 +71,11 @@ class ExpenseData
 
       puts columns.join(' | ')
     end
+
+    amount_sum = expenses.field_values("amount").map(&:to_f).inject(:+)
+
+    puts "-" * 50
+    puts "Total #{format('%.2f', amount_sum.to_s).rjust(25)}"
   end
 end
 

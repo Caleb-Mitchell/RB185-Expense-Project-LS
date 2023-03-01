@@ -1,12 +1,14 @@
 GEM
   remote: https://rubygems.org/
   specs:
+    io (0.0.1)
     pg (1.4.6)
 
 PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
+  io
   pg
 
 RUBY VERSION

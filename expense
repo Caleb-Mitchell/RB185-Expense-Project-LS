@@ -2,49 +2,140 @@
 
 require "pg"
 
-CONNECTION = PG.connect(dbname: "expenses")
+require "io/console"
 
-def display_help
-  puts <<~HELP
-    An expense recording system
+class ExpenseData
+  def initialize
+    @connection = PG.connect(dbname: "expenses")
+  end
 
-    Commands:
+  def list_expenses
+    result = @connection.exec("SELECT * FROM expenses ORDER BY created_on ASC;")
+    display_expense_count(result)
+    return unless result.ntuples > 0
 
-    add AMOUNT MEMO - record a new expense
-    clear - delete all expenses
-    list - list all expenses
-    delete NUMBER - remove expense with id NUMBER
-    search QUERY - list expenses with a matching memo field
-  HELP
-end
+    display_expenses(result)
+    display_expense_total(result)
+  end
 
-def list_expenses
-  result = CONNECTION.exec("SELECT * FROM expenses ORDER BY created_on ASC;")
-  result.each do |tuple|
-    columns = [tuple["id"].rjust(3),
-               tuple["created_on"].rjust(10),
-               tuple["amount"].rjust(12),
-               tuple["memo"]]
+  def add_expense(amount, memo)
+    date = Date.today
+    sql = "INSERT INTO expenses (amount, memo, created_on) " \
+          "VALUES ($1, $2, $3);"
+    @connection.exec_params(sql, [amount, memo, date])
+  end
 
-    puts columns.join(' | ')
+  def search_expenses(query)
+    sql = "SELECT * FROM expenses WHERE memo ILIKE $1 " \
+          "ORDER BY created_on ASC;"
+    result = @connection.exec_params(sql, ["%#{query}%"])
+    display_expense_count(result)
+    return unless result.ntuples > 0
+
+    display_expenses(result)
+    display_expense_total(result)
+  end
+
+  def delete_expense(id)
+    sql = "SELECT * FROM expenses WHERE id = $1;"
+    result = @connection.exec_params(sql, [id])
+
+    if result.ntuples.zero?
+      puts "There is no expense with the id '#{id}'."
+    else
+      @connection.exec_params("DELETE FROM expenses WHERE id = $1;", [id])
+      puts "The following expense has been deleted:"
+      display_expenses(result)
+    end
+  end
+
+  def delete_all_expenses
+    @connection.exec("DELETE FROM expenses;")
+    puts "All expenses have been deleted."
+  end
+
+  private
+
+  def display_expense_count(expenses)
+    expense_count = expenses.ntuples
+    puts case expense_count
+         when 0
+           "There are no expenses"
+         when 1
+           "There is 1 expense."
+         else
+           "There are #{expense_count} expenses."
+         end
+  end
+
+  def display_expense_total(expenses)
+    total = 0
+    expenses.each do |row|
+      total += row["amount"].to_f
+    end
+
+    puts "-" * 50
+    puts "Total" + "#{total.to_s.rjust(26)}"
+  end
+
+  def display_expenses(expenses)
+    expenses.each do |tuple|
+      columns = [tuple["id"].rjust(3),
+                 tuple["created_on"].rjust(10),
+                 tuple["amount"].rjust(12),
+                 tuple["memo"]]
+
+      puts columns.join(' | ')
+    end
   end
 end
 
-def add_expense(amount, memo)
-  date = Date.today
-  sql = ("INSERT INTO expenses (amount, memo, created_on) " \
-    "VALUES ($1, $2, $3);")
-  CONNECTION.exec_params(sql, [amount, memo, date])
+class CLI
+  def initialize
+    @application = ExpenseData.new
+  end
+
+  def display_help
+    puts <<~HELP
+      An expense recording system
+
+      Commands:
+
+      add AMOUNT MEMO - record a new expense
+      clear - delete all expenses
+      list - list all expenses
+      delete NUMBER - remove expense with id NUMBER
+      search QUERY - list expenses with a matching memo field
+    HELP
+  end
+
+  # rubocop:disable Metrics/MethodLength
+  def run(arguments)
+    case arguments.first
+    when 'add'
+      amount = arguments[1]
+      memo = arguments[2]
+      abort "You must provide an amount and memo." unless amount && memo
+      @application.add_expense(amount, memo)
+    when 'search'
+      memo = arguments[1]
+      abort "You must provide a memo." unless memo
+      @application.search_expenses(memo)
+    when 'delete'
+      id = arguments[1]
+      abort "You must provide an id." unless id
+      @application.delete_expense(id)
+    when 'clear'
+      puts "This will remove all expenses. Are you sure? (y/n)"
+      response = $stdin.getch
+      @application.delete_all_expenses if response == 'y'
+    when 'list'
+      @application.list_expenses
+    else
+      display_help
+    end
+  end
+  # rubocop:enable Metrics/MethodLength
 end
 
-command = ARGV.first
-if command == 'list'
-  list_expenses
-elsif command == 'add'
-  amount = ARGV[1]
-  memo = ARGV[2]
-  abort "You must provide an amount and memo." unless amount && memo
-  add_expense(amount, memo)
-else
-  display_help
-end
+CLI.new.run(ARGV)
